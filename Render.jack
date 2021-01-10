@@ -1,0 +1,716 @@
+//class for wireframe 3d render
+// up vector is always (0,1,0)
+// fov is 90 deg
+
+
+class Render {
+
+	// near distance (set to 0.25f), multiplied by -2
+	static Float G;
+
+	// camera position
+	static Float camPosX, camPosY, camPosZ;
+	
+	// camera look point
+	static Float camViewX, camViewY, camViewZ;
+	
+	// view plane normal (n vector)
+	static Float nX, nY, nZ;
+
+	// u vector
+	static Float uX, uY, uZ;
+	
+	// v vector
+	static Float vX, vY, vZ;
+	
+	// cam look transform * cam pos transform values
+	static Float A, B, C, D;
+	
+	// stage array for returning copied model
+	static Array ret;
+	
+	// temp arrays used in rendering
+	static Array temp, cull;
+	
+	// arrays used in drawing
+	static Array pow;
+	static Array mask;
+	
+	// buffers used for rendering, contains list of screen points to draw lines between, first index is used to store size of the list, two buffers are necessary for cleaning screen
+	static Array buff1, buff2;
+	
+	// boolean to select which buffer to fill
+	static bool whichBuff;
+	
+	//init function
+	function void init() {
+		let G = -18432; // -0.5f
+		let ret = Array.new(385); // could be higher, 128 vert max + first index for size
+		let temp = Array.new(128);
+		let cull = Array.new(128);
+		let buff1 = Array.new(256);
+		let buff2 = Array.new(256);
+		let pow = Math.getPow();
+		let mask = Math.getMask();
+		
+		return;
+	}
+	
+	//set camera position
+	function void setCamPos(Float x, Float y, Float z) {
+		let camPosX = x;
+		let camPosY = y;
+		let camPosZ = z;
+		
+		return;
+	}
+	
+	// set camera look point
+	function void setCamView(Float x, Float y, Float z) {
+		let camViewX = x;
+		let camViewY = y;
+		let camViewZ = z;
+		
+		return;
+	}
+	
+	//computing transformation matrix
+	function void transMatrix() {
+		var Float length;
+		
+		//	computing n vector
+		let nX = Float.add(camViewX, Float.negate(camPosX));
+		let nY = Float.add(camViewY, Float.negate(camPosY));
+		let nZ = Float.add(camViewZ, Float.negate(camPosZ));
+		//normalizing n vector
+		let length = Float.fastInvSqrt( Float.add( Float.add(Float.mult(nX, nX), Float.mult(nY, nY)), Float.mult(nZ, nZ)));
+		
+		let nX = Float.mult(nX, length);
+		let nY = Float.mult(nY, length);
+		let nZ = Float.mult(nZ, length);
+		
+		//	computing u vector 
+		let uX = nZ;
+		let uY = 0; // always 0!!!!
+		let uZ = Float.negate(nX);
+		
+		//normalizing u vector
+		let length = Float.fastInvSqrt( Float.add(Float.mult(uX, uX), Float.mult(uZ, uZ)));
+		let uX = Float.mult(uX, length);
+		let uY = Float.mult(uY, length);
+		let uZ = Float.mult(uZ, length);
+		
+		// computing v vector
+		let vX = Float.add( Float.mult(nY, uZ), Float.negate(Float.mult(nZ, uY)));
+		let vY = Float.add( Float.mult(nZ, uX), Float.negate(Float.mult(nX, uZ)));
+		let vZ = Float.add( Float.mult(nX, uY), Float.negate(Float.mult(nY, uX)));
+	
+		//normalizing v vector
+		let length = Float.fastInvSqrt( Float.add( Float.add(Float.mult(vX, vX), Float.mult(vY, vY)), Float.mult(vZ, vZ)));
+		let vX = Float.mult(vX, length);
+		let vY = Float.mult(vY, length);
+		let vZ = Float.mult(vZ, length);
+		
+		//computing A
+		let A = Float.add( Float.add(Float.mult(camPosX, uX), Float.mult(camPosY, uY)), Float.mult(camPosZ, uZ));
+		//computing B
+		let B = Float.add( Float.add(Float.mult(camPosX, vX), Float.mult(camPosY, vY)), Float.mult(camPosZ, vZ));
+		//computing D
+		let D = Float.add( Float.add(Float.mult(camPosX, nX), Float.mult(camPosY, nY)), Float.mult(camPosZ, nZ));
+		
+		return;
+	}
+	
+	//adds model to buffer which contains lines to render later
+	function void addModel(Array model, bool hide) {
+		var Float v1x, v1y, v1z, v1w, localX, localY, localZ;
+		var int vsx, vsy, index, nVertex, bufferIndex, max, vert, from, to;
+		var Array buffer;
+		
+		//choosing buffer 
+		if(whichBuff) {
+			let buffer = buff1;
+		} else {
+			let buffer = buff2;
+		}
+		
+		//culling hidden edges 
+		if(hide) {
+			let model = Render.cull(model);
+		}
+		
+		//computing positions of verticles, saving 2d positions in buffer to draw 
+		
+		let index = 3;
+		let max = model[0]+3;
+		
+		while( max > index) {
+		
+			let localX = model[index];
+			let localY = model[index+1];
+			let localZ = model[index+2];
+			
+			//translating into camera coords
+			let v1x = Float.add(A, Float.negate(Float.add( Float.mult(localX, uX), Float.mult(localZ, uZ) )));
+			let v1y = Float.shift( Float.add(B, Float.negate( Float.add(Float.add(Float.mult(localX, vX), Float.mult(localY, vY)), Float.mult(localZ, vZ)) )) , 1, false); // multiplying by 2
+			let v1w = Float.add(D, Float.negate(Float.add(Float.add(Float.mult(localX, nX), Float.mult(localY, nY)),Float.mult(localZ, nZ))));
+			let v1z = Float.add(v1w, G);
+			
+			//normalizing
+			let v1x = Float.div(v1x, v1w);
+			let v1y = Float.div(v1y, v1w);
+			let v1z = Float.div(v1z, v1w);
+			
+			//translating into 2d canvas
+			let vsx = 256 - Float.toInt(Float.shift(v1x, 8, false));
+			let vsy = 128 - Float.toInt(Float.shift(v1y, 7, false));
+			
+			//updating temp array which contains positions of points 
+			let temp[nVertex] = vsx;
+			let temp[nVertex+1] = vsy;
+			
+			//updating indexes
+			let index = index + 3;
+			let nVertex = nVertex + 2;
+		}
+		
+		//computing edges, then adding edge to buffer to draw later
+		let index = model[0] + 3;
+		let max = model[1] + model[0] + 3;
+		let bufferIndex = (buffer[0]*4)+1;
+		
+		while( max > index) {
+			let vert = model[index];
+			
+			//computing indexes of verts
+			let from = Math.SHR( (vert&(~255)) , 8);
+			let to = vert&255;
+			
+			//adding 
+			//do Render.drawLine(temp[from], temp[from+1], temp[to], temp[to+1]);
+			let buffer[bufferIndex] = temp[from]; //x from
+			let buffer[bufferIndex+1] = temp[from+1]; //y from
+			let buffer[bufferIndex+2] = temp[to]; // x to
+			let buffer[bufferIndex+3] = temp[to+1]; // t to
+			
+			
+			//updating index
+			let index = index+1;
+			let bufferIndex = bufferIndex + 4;
+		}
+		
+		//adding number of edges to buffer counter
+		let buffer[0] = buffer[0] + model[1];
+		
+		return;
+	}
+	
+	//render current buffer with white color to clear the screen, then changes buffer and render wanted scene, current buffer becomes the buffer to fill
+	function void render() {
+		var int vsx, vsy, index, nVertex, bufferIndex, nEdges;
+		var Array buffer;
+		
+		//		clearing the screen
+		
+		if(whichBuff) {
+			let buffer = buff2;
+		} else {
+			let buffer = buff1;
+		}
+		
+		let nEdges = buffer[0]+buffer[0]+buffer[0]+buffer[0]+1;
+		let index = 1;
+		
+		//render scene with white color to clean the screen
+		while(index < nEdges) {
+			
+			do Render.drawLine(buffer[index], buffer[index+1], buffer[index+2], buffer[index+3], false);
+			
+			let index = index+4;
+		}
+		
+		//this buffer is the old one, changing the size of this buffer to 0
+		let buffer[0] = 0;
+		
+		//		rendering new scene
+		
+		if(whichBuff) {
+			let buffer = buff1;
+		} else {
+			let buffer = buff2;
+		}
+		
+		//adding 1 because buffer[0] is the size of buffer
+		let nEdges = buffer[0]+buffer[0]+buffer[0]+buffer[0]+1;
+		let index = 1;
+		
+		//rendering
+		while(index < nEdges) {
+			
+			do Render.drawLine(buffer[index], buffer[index+1], buffer[index+2], buffer[index+3], true);
+			
+			let index = index+4;
+		}
+		
+		//changing active buffer
+		let whichBuff = ~whichBuff;
+		
+		return;
+	}
+	
+	//rotating model in Y axis by given degree in rad
+	function Array rotModelY(Array model, Float rad) {
+		var int length, index, x, z, sin, cos, xshift, zshift;
+		
+		let length = model[0]+3;
+		let index = 3;
+		
+		//preparing ret array
+		let ret[0] = model[0];
+		let ret[1] = model[1];
+		let ret[2] = model[2];
+		
+		//using recursion to correctly rotate by more than 90 deg (this is bad af)
+		while ( rad > 15944) {
+			let rad = Float.add(rad, -16824);
+		}
+			
+		//computing sin and cos
+
+		let sin = Float.trig(rad, false);
+		let cos = Float.trig(rad, true);
+		
+		while( length > index) {
+			// y coord
+			let ret[index+1] = model[index+1];
+
+			// x coord
+			let x = model[index];
+			// z coord
+			let z = model[index+2];
+			
+			let ret[index] = Float.add( Float.mult(x, cos), Float.negate(Float.mult(z, sin)) );
+			let ret[index+2] = Float.add( Float.mult(sin, x), Float.mult(z, cos));
+			
+			let index = index+3;
+		}
+		
+		//copying edges, faces and edge info
+		let index = length;
+		let length = model[0]+model[1]+model[2]+model[1]+3;
+		while(  length > index) {
+			let ret[index] = model[index];
+			let index = index + 1;
+		}
+		
+		
+		
+		return ret;
+	}
+	
+    function Array rotModelX(Array model, Float rad) {
+		var int length, index, x, z, sin, cos, xshift, zshift;
+		
+		let length = model[0]+3;
+		let index = 3;
+		
+		//preparing ret array
+		let ret[0] = model[0];
+		let ret[1] = model[1];
+		let ret[2] = model[2];
+		
+		//using recursion to correctly rotate by more than 90 deg (this is bad af)
+		while ( rad > 15944) {
+			let rad = Float.add(rad, -16824);
+		}
+			
+		//computing sin and cos
+
+		let sin = Float.trig(rad, false);
+		let cos = Float.trig(rad, true);
+		
+		while( length > index) {
+			// y coord
+			let ret[index+1] = model[index+1];
+
+			// x coord
+			let x = model[index];
+			// z coord
+			let z = model[index+2];
+			
+			let ret[index] = Float.add( Float.mult(x, cos), Float.negate(Float.mult(z, sin)) );
+			let ret[index+2] = Float.add( Float.mult(sin, x), Float.mult(z, cos));
+			
+			let index = index+3;
+		}
+		
+		//copying edges, faces and edge info
+		let index = length;
+		let length = model[0]+model[1]+model[2]+model[1]+3;
+		while(  length > index) {
+			let ret[index] = model[index];
+			let index = index + 1;
+		}
+		
+		
+		
+		return ret;
+	}
+    
+	//translating model by a given vector 
+	function Array transModel(Array model, Float x, Float y, Float z) {
+		var int length, index;
+		
+		let length = model[0]+3;
+		let index = 3;
+		
+		//preparing ret array
+		let ret[0] = model[0];
+		let ret[1] = model[1];
+		let ret[2] = model[2];
+		
+		//repositioning verticles
+		while(length > index) {
+			
+			let ret[index] = Float.add(model[index], x);
+			let ret[index+1] = Float.add(model[index+1], y);
+			let ret[index+2] = Float.add(model[index+2], z);
+			
+			let index = index+3;
+		}
+		
+		//copying edges, faces and edge info
+		let index = length;
+		let length = model[0]+model[1]+model[2]+model[1]+3;
+		while(  length > index) {
+			let ret[index] = model[index];
+			let index = index + 1;
+		}
+		
+		return ret;
+	}
+	
+	//culling hidden edges by creating new model with removed hidden edges
+	function Array cull(Array model) {
+		var int point, edge, face, index, max, tempIndex, vertIndex, Aindex, Bindex, Pindex, length, edgeCounter, draw;
+		var Float scalarMult;
+		//vector from verticle to cam
+		var Float Cx, Cy, Cz;
+		//vector of verticles of face
+		var Float Ax, Ay, Az, Bx, By, Bz;
+		//base point
+		var Float Px, Py, Pz;
+		
+		//temp array is used to save the information about which face is visible
+		let index = model[0]+model[1]+3;
+		let max = index+model[2];
+		
+		//for each face
+		while(index < max) {
+			//take current verticle coords
+			
+			//take right portion of face that corresponds to the second edge
+			let vertIndex = model[index]&255;
+			//take index of the first point of this edge
+			let Pindex = (Math.SHR((model[model[0]+3+vertIndex]&(~255)), 9)*3)+3;
+			//calculating Aindex
+			let Aindex = (Math.SHR((model[model[0]+3+ (Math.SHR((model[index]), 8)&255) ]&255),1)*3)+3;
+			//calculating Bindex
+			let Bindex = (Math.SHR((model[model[0]+3+ (model[index]&255) ]&255),1)*3)+3;
+			
+			//calculating coords of base point
+			let Px = model[Pindex];
+			let Py = model[Pindex+1];
+			let Pz = model[Pindex+2];
+			
+			//calculating A vector
+			let Ax = Float.add(model[Aindex], Float.negate(Px));
+			let Ay = Float.add(model[Aindex+1], Float.negate(Py));
+			let Az = Float.add(model[Aindex+2], Float.negate(Pz));
+			
+			//calculating B vector
+			let Bx = Float.add(model[Bindex], Float.negate(Px));
+			let By = Float.add(model[Bindex+1], Float.negate(Py));
+			let Bz = Float.add(model[Bindex+2], Float.negate(Pz));
+			
+			//calculating vector from this verticle to the cam
+			let Cx = Float.add(camPosX, Float.negate(Px));
+			let Cy = Float.add(camPosY, Float.negate(Py));
+			let Cz = Float.add(camPosZ, Float.negate(Pz));
+			
+			//calculating scalar multiplication of this vector by vector mult of faces vectors
+			let scalarMult = Float.negate(Float.add(Float.add(Float.mult(Float.add(Float.mult(Ay, Bz), Float.negate(Float.mult(Az, By))), Cx), Float.mult(Float.add(Float.mult(Az, Bx), Float.negate(Float.mult(Ax, Bz))), Cy)), Float.mult(Float.add(Float.mult(Ax, By), Float.negate(Float.mult(Ay, Bx))), Cz)));
+			
+			//if this scalar multiplication is greater than 0 then normal vector of this face points in the direction of the cam, hence it is visible
+			let temp[tempIndex] = (scalarMult > 0);
+			
+			let tempIndex = tempIndex+1;
+			let index = index+1;
+		}
+		
+		//now we have temp table with information which faces are visible, now we construct cull model with edges that are visible
+	
+		let cull[0] = model[0];
+		let cull[1] = model[1];
+		let cull[2] = model[2];
+		let length = model[0]+3;
+		let index = 3;
+		
+		//copying verticles
+		while(length > index) {
+			let cull[index] = model[index];
+			let index = index + 1;
+		}
+		
+		//copying only those edges that are visible
+		
+		//index of current edge information
+		let index = model[0]+model[1]+model[2]+3;
+		let length = index+model[1];
+		
+		//index to determine where put visible edge
+		let edgeCounter = model[0]+3;
+		
+		while( length > index) {
+			
+			//checking if current edge is visible
+			let draw =  temp[Math.SHR(model[index], 8)&255] | temp[model[index]&255];
+			
+			if(draw) {
+				let cull[edgeCounter] = model[index-model[1]-model[2]]; 
+				let edgeCounter = edgeCounter + 1;
+			}
+			
+			let index = index + 1;
+		}
+		
+		//puting how many edges we put
+		let cull[1] = (edgeCounter-model[0]-3);
+		
+		return cull;
+	}
+	
+    /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
+    function void drawLine(int x1, int y1, int x2, int y2, bool color) {
+        var int dx, dy, d2, d2minusd2, error, dir, addressDir,wantedByteAddress, wantedByteValue, base;
+        
+        //normalizing x coords
+        if(x1>x2) {
+            let dx = x1;
+            let x1 = x2;
+            let x2 = dx;
+            
+            let dx = y1;
+            let y1 = y2;
+            let y2 = dx;
+        }
+        
+        let dx = x2-x1;
+        let dy = y2-y1;
+		if(0>dy) {
+			let dy = -dy;
+		}
+				
+		if( dx = 0) {
+            do Render.drawVerticalLine(y1, y2, x1, color);
+        } else {
+			if( dy = 0) {
+				do Render.drawHorizontalLine(x1, x2, y1, color);
+			} else {
+		
+					//setup dir
+					if((y2-y1)>0) {
+						let dir = 1;
+						let addressDir = 32;
+					} else {
+						let dir = -1;
+						let addressDir = -32;
+					}
+					
+					//calculating first address
+					let wantedByteAddress = 16384+Math.rotL(y1, 5)+Math.SHR(x1, 4);
+					
+					//draw teh first pixel
+					//do Screen.drawPixel(x1, y1);
+					//bresenham
+					if(dx>dy) {
+						let d2 = dy+dy;
+						let d2minusd2 = d2 - dx - dx;
+						let error = d2 - dx;
+						
+						while(dx>0) {
+							if(error>-1) {
+								let y1 = y1 + dir;
+								let wantedByteAddress = wantedByteAddress + addressDir;
+								let error = error + d2minusd2;
+							} else {
+								let error = error + d2;
+							}
+							let x1 = x1+1;
+							let wantedByteAddress = wantedByteAddress + (((x1 & 15) = 0) & 1);
+							let dx = dx-1;
+							
+							if( (y1 > 255) | ( x1 > 511 ) ) {
+								return;
+							}
+							
+							let wantedByteValue =  pow[x1 & 15];
+							//let base[wantedByteAddress] = (base[wantedByteAddress] & ~wantedByteValue) | (~base[wantedByteAddress] & wantedByteValue);
+							if(color) {
+								let base[wantedByteAddress] = base[wantedByteAddress] | wantedByteValue;
+							} else {
+								let base[wantedByteAddress] = ~(~base[wantedByteAddress] | wantedByteValue);
+							}
+							
+							//let base[wantedByteAddress] = ((base[wantedByteAddress] | wantedByteValue)&color) | (~(~base[wantedByteAddress] | wantedByteValue))&(~color);
+						}
+						
+					} else {
+						// Set up initial error term and values used inside drawing loop
+						let d2 = dx+dx;
+						let d2minusd2 = d2 - dy - dy;
+						let error = d2 - dy;
+						
+						while(dy>0) {
+							if(error>-1) {
+								let x1 = x1+1;
+								let wantedByteAddress = wantedByteAddress + (((x1 & 15) = 0) & 1);
+								let error = error + d2minusd2;
+							} else {
+								let error = error + d2;
+							}
+							let y1 = y1 + dir;
+							let wantedByteAddress = wantedByteAddress + addressDir;
+							let dy = dy-1;
+							
+							if( (y1 > 255) | ( x1 > 511 ) ) {
+								return;
+							}
+							
+							let wantedByteValue =  pow[x1 & 15];
+							//let base[wantedByteAddress] = (base[wantedByteAddress] & ~wantedByteValue) | (~base[wantedByteAddress] & wantedByteValue);
+							if(color) {
+								let base[wantedByteAddress] = base[wantedByteAddress] | wantedByteValue;
+							} else {
+								let base[wantedByteAddress] = ~(~base[wantedByteAddress] | wantedByteValue);
+							}
+						}
+					}
+			}
+		}
+		
+		return;
+	}
+	
+	function void drawHorizontalLine(int from, int to, int y, bool color) {
+        var int t1, wantedByteValue, base, wantedByteAddress, currByteValue;
+        //correcting 
+        if(from>to) {
+            let t1 = from;
+            let from = to;
+            let to = t1;
+        }
+        
+		if( y > 255 ) {
+			return;
+		}
+		
+		if(0 > from) {
+			let from = 0;
+		}
+		
+		if(to > 511) {
+			let to = 511;
+		}
+		
+        //checking if line is drawn in the same word
+        if( (from&(~15) ) - (to&(~15 ) ) = 0 ) {
+            
+            let wantedByteValue = (-pow[from&15]) & (mask[to&15]);
+            let wantedByteAddress = 16384+Math.rotL(y, 5)+Math.SHR(from, 4);
+
+			if(color) {
+				let base[wantedByteAddress] = base[wantedByteAddress] | wantedByteValue;
+			} else {
+				let base[wantedByteAddress] = ~(~base[wantedByteAddress] | wantedByteValue);
+			}
+            
+        } else {
+            //multiword line
+            let wantedByteAddress = 16384+Math.rotL(y, 5)+Math.SHR(from, 4);
+            //from
+            let wantedByteValue = -pow[from&15];
+            let currByteValue = base[wantedByteAddress];
+            
+            let base[wantedByteAddress] = (currByteValue & ~wantedByteValue) | (~currByteValue & wantedByteValue);
+            //mid
+            let t1 = Math.SHR(to, 4) - Math.SHR(from, 4) - 1;
+            while(t1>0) {
+                let wantedByteAddress = wantedByteAddress+1;
+                if(color) {
+					let base[wantedByteAddress] = true;
+				} else {
+					let base[wantedByteAddress] = false;
+				}
+
+                let t1 = t1-1;
+            }
+            //to
+            let wantedByteValue = mask[to&15];
+            let wantedByteAddress = wantedByteAddress+1;
+			
+            if(color) {
+				let base[wantedByteAddress] = base[wantedByteAddress] | wantedByteValue;
+			} else {
+				let base[wantedByteAddress] = ~(~base[wantedByteAddress] | wantedByteValue);
+			}
+        }
+        
+        return;
+    }
+    
+    function void drawVerticalLine(int from, int to, int x, bool color) {
+        var int currByteValue, wantedByteAddress, wantedByteValue, xDiv16, xMul16, count, base;
+        
+		if( (x > 511) | ( 0 > x ) ) {
+			return;
+		}
+		
+        if(from>to) {
+            let count = from;
+            let from = to;
+            let to = count;
+        }
+        
+		if(to > 255) {
+			let to = 255;
+		}
+		
+        let xDiv16 = Math.SHR(x, 4);
+        let xMul16 = xDiv16+xDiv16;
+        let xMul16 = xMul16+xMul16;
+        let xMul16 = xMul16+xMul16;
+        let xMul16 = xMul16+xMul16;
+        
+        let wantedByteAddress = 16384+(from*32)+xDiv16;
+         //how tall it is
+        let count = to-from;
+        
+        while(count>0) {
+        
+		let currByteValue = base[wantedByteAddress];
+		let wantedByteValue = pow[x-xMul16];
+		
+        if(color) {
+			let base[wantedByteAddress] = base[wantedByteAddress] | wantedByteValue;
+		} else {
+			let base[wantedByteAddress] = ~(~base[wantedByteAddress] | wantedByteValue);
+		}
+        
+        let wantedByteAddress=wantedByteAddress+32;
+        let count = count - 1;
+        }
+        
+        return;
+    }		
+}

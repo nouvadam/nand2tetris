@@ -1,0 +1,553 @@
+class Float {
+	
+	// x.yyyyy.zzzzzzzzzz
+	// x - sign
+	// y - exponent 
+	// z - significand
+	
+	// m = (-1)^x + 2^(y-15) * 1.z
+	
+
+	static Array mask;
+	static Array pow;
+	static Array arctan;
+	
+	static int n; // precision of trig function
+	
+	function void init() {
+		
+		let mask = Math.getMask();
+		let pow = Math.getPow();
+		//init arctan array for sinus function
+		let arctan = Array.new(6);
+		let arctan[0] = 14920; //arctan(2^0) = 0.785398163
+		let arctan[1] = 14187; //arctan(2^-1) = 0.463647609
+		let arctan[2] = 13270; //arctan(2^-2) = 0.244978663
+		let arctan[3] = 12277; //arctan(2^-3) = 0.124354995
+		let arctan[4] = 11261; //arctan(2^-4) = 0.06241881
+		let arctan[5] = 10239; //arctan(2^-5) = 0.0312398334
+		// futher values are identical to arguments because of 16bit float precision ( they differ by 1 ULP though)
+		
+		let n = 13;
+		return;
+	}
+
+	
+	//todo:
+	// subnormals handling
+	// correct rounding instead of truncating
+	// optimisations
+	// unittest for signs
+	// handling subnormals, zero, inf etc
+	// subtraction tends to be incorrect
+	
+	function Float add (Float x, Float y) {
+		var int exp, sig, sx, sy, expx, expy, sigx, sigy, temp;
+		
+		if( x = 0 ) {
+			return y;
+		}
+		
+		if( y = 0 ) {
+			return x;
+		}
+		
+		//bigger number is x, thus x has bigger exponent and y should be normalized to x
+		if (  (y&32767) > (x&32767)) {
+			let temp = x;
+			let x = y;
+			let y = temp;
+		}
+		
+		let expx = x&31744;
+		let expy = Math.SHR( (y&31744), 10);
+		
+		let sigx = x&1023+1024; // 1024 is 11 bit that is left when normalizing
+		let sigy = y&1023+1024;
+		
+		let sx =  x&(~32767);
+		let sy = y&(~32767);
+		
+		let temp = Math.SHR(expx, 10)-expy; // this is how many times we need to rotate sigy to the right
+		
+		if( 11 > temp ) {
+			let sigy = Math.SHR(sigy, temp ); // rotating
+		} else {
+			return x; // flooring to the int
+		}
+		
+		//now x and y have the same exponent and their significants are aligned
+		
+		//we're adding them if XNOR(sx, sy), else sub, sign will be sx
+		if( (sx+sy) = 0 ) {
+			let sig = sigx + sigy;
+			
+			//normalizing
+			if( sig > 2047 ) {
+				let sig = Math.SHR(sig, 1);
+				let expx = expx + 1024; //increasing exponent
+			}
+		} else {
+			if( sigx = sigy ) { //those numbers are equal
+				return 0;
+			}
+			
+			let sig = sigx - sigy;
+			//normalizing
+			while( 1 > (sig&1024) ) {
+				let sig = sig+sig;
+				let expx = expx-1024; //decreasing exp
+			}
+		}
+
+
+		
+		//11bit is zeroed as implied by standard
+		//adding to the sig exponent
+		//adding sign to the result and returning
+ 		
+		return ((sig & 1023)|expx)|sx;
+		
+	}
+	
+	//todo:
+	// correct rounding-to-nearest instead of truncating
+	// optimilization by removing unnecessary exp shifting
+	// handling subnormals, zero, inf etc
+	
+	function Float mult (Float x, Float y) {
+		var int exponent, expx, expy, sigx, sigy, sumU, sumD, nextpowerU, nextpowerD, index, temp;
+		
+		//checking if factor are bigger than 0, if not then return 0
+		if( (x = 0) | (y = 0) ) {
+			return 0;
+		}
+		
+		//putting bigger significant in y
+		if ( (x&1023) > (y&1023)) {
+			let temp = x;
+			let x = y;
+			let y = temp;
+		}
+		
+		//float unpack
+		let expx = Math.SHR( (x&31744), 10);	
+		let expy = Math.SHR( (y&31744), 10);
+		
+		let sigx = x&1023+1024; // 1024 is 11 bit that is left when normalizing
+		let sigy = y&1023+1024;
+		
+		//adding exponentials - to optimize in the future
+		
+		let exponent = expx+expy-15; 
+		if(exponent > 31) {
+			//rounding to 65504
+			return 31743+(x&(~32767))+(y&(~32767));
+		}
+		if(0 > exponent) { //result is rounded to 0
+			return 0;
+		}	
+		
+		//multiplying significants, storing results in 2 16-bit variables
+		// 16bit in nexpower_down contains carrybit
+		//mul result is not bigger than 2^23, thus it fits into two 16bit int plus one bit, because of use of 15bit in sumD to carry
+		
+        let nextpowerD = sigy;
+        
+        while(11 > index) {
+			
+			//adding next power to the sum if there is 1 on current X bit
+			if( (sigx & pow[index]) > 0  ) {
+                let sumD = sumD + nextpowerD;
+				let sumU = sumU + nextpowerU - (0 > sumD); // look down for explanation
+				let sumD = sumD&32767;
+            }
+			
+			//calc next index
+			let index = index + 1;
+			
+			//calc next power of sigy
+			let nextpowerD = nextpowerD + nextpowerD;
+			let nextpowerU = nextpowerU + nextpowerU - (0 > nextpowerD); // "- (0 > nextpowerD)" is +1 when there is 1 on carry bit in nextpowerD
+			let nextpowerD = nextpowerD&32767;
+        }
+		 
+		// now we have denormalized significant; the smallest possible value of this multiplication is 1048576 (2^20), 
+		// the biggest value is 4190209, log(4190209) ~ 22, 4190209 less than 2^22
+		// result is one bit shifted to the left because the oldest bit in sumD was used to carry
+		// now we want to normalize that two-var multiplication result into 11bit int
+		// by left-shifting into sumU until it takes 11 bits
+		
+		//shifting sumU 4 times to the left
+		let sumU = sumU+sumU;
+		let sumU = sumU+sumU;
+		let sumU = sumU+sumU;
+		let sumU = sumU+sumU;
+		
+		if( (sumU & 1024) > 0) { //sumU is on 22 bits
+			// adding 1 beacuse we need to shift sumU one time less
+			let exponent = exponent + 1;
+			//shifting upper 6 bits of sumD to sumU		
+			let sumU = sumU + Math.SHR( (sumD&30720), 11);
+		} else { // sumU is on 21 bits
+			//shifting sumU 6 times to the left
+			let sumU = sumU+sumU;
+			//shifting upper 7 bits of sumD to sumU		
+			let sumU = sumU + Math.SHR( (sumD&31744), 10);
+		}	
+
+		//returning value 
+		//shifting exponent to the left 10 times
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		let exponent = exponent+exponent;
+		
+		return (sumU&1023)|exponent|((x&(~32767))+(y&(~32767)));
+	}
+	
+	// WARNING: USING FAST INVERSE HACK
+	// i was too lazy to implement correct div
+	// but this should be faster anyway
+	// https://stackoverflow.com/questions/31031223/fast-approximate-float-division
+	
+	function Float div (Float x, Float y) {
+		var int temp, sign, inv;
+	
+		//checking if y is zero
+		if(y = 0) {
+			return 31743+(x&(~32767))+(y&(~32767)); // infinity
+		}
+		
+		//calculating sign
+		let sign = (x&(~32767)) + (y&(~32767));
+		
+		//removing sign from y
+		let y = y - (y&(~32767));
+		
+		//calculating inverse of y
+		let inv = Float.inv(y);
+		
+		//returning result
+		return ( Float.mult(x, inv) & 32767)|sign;
+	}
+	
+	//stupid trick for calculating approximane binary logarithm
+	function Float log2(Float x) {
+		return Math.SHR(x, 11)-15;
+	}
+	
+	//stupid trick for calculating approximate inversion
+	function Float inv(Float x) {
+		var int temp, sign, inv;
+		
+		//calculating sign
+		let sign = x&(~32767);
+		
+		//removing sign from y
+		let x = x - (x&(~32767));
+		
+		//calculating inverse of x, i don't have any idea why this works but whatever
+		// 30631 is our magic number, with magic sigma that correct this is 173 30547
+		// Iy = 2*2^10*(15-sigma)
+		// sigma = 0.0430357
+		let inv = 30631 - x;
+		
+		//using Newton Root Finding Method to improve approximation (16384 is 2 in float btw)
+		return sign | ( Float.mult(inv, (Float.add(16384, (Float.negate(Float.mult(inv, x)))))) );
+	}
+	
+	function int toInt(Float x) {
+		var int exp, res;
+		
+		//calculating exponent
+		let exp = Math.SHR( (x&31744), 10);
+		
+		//test if x is less than 1
+		if( 15 > exp ) {
+			return 0;
+		}
+		
+		let res = (x&1023)+1024;
+		
+		// x is greater than 1; if exponent is greater than 25 (base 15 + 10) then shifting left, else shifting right
+		if( exp > 25 ) {
+			let res =  Math.rotL(res, exp-25);
+		}
+		if(25 > exp) {
+			let res = Math.SHR(res, 25-exp);
+		}
+		
+		/**
+		let exp = 0>x;
+		
+		if(sign > 0) {
+			return -((res&(~exp)) | ((~(res-1))&exp)) ;
+		} else {
+			return (res&(~exp)) | ((~(res-1))&exp) ;
+		}
+		*/
+		if( 0 > x ) {
+			return -res;
+		} else {
+			return res;
+		}
+	}
+	
+	function Float intToFloat(int x) {
+		var int sign, count, shift;
+		
+		//to convert int to float we only need to shift int left/right to fit into 11 bits of mantissa adding to exp the amount of shift
+		// debrujin seq used is 3941
+		
+		//calc sign
+		let sign = x&(~32767);
+		
+		//remove sign
+		if(sign>0) {
+			let x = -x;
+		}
+		
+		if(x = 0) {
+			return 0;
+		}
+		
+		//how many times we have to shift int left/right
+		let count = Math.log(x);
+		
+		if(count > 10) {
+			//we have to shift right
+			
+			let shift = count - 10;
+			return ((15360+(1024*count))+(Math.SHR(x, shift)&1023))|sign;
+			
+		} else {
+			//we have to shift left
+
+			let shift = 10 - count;
+			return ((15360+(1024*count))+(Math.rotL(x, shift)&1023))|sign;
+		}
+	}
+	
+	// WARNING: USING CORDIC HACK
+	// i dunno how 2 implement sinus 
+	// im too lazy to write explanations thus read this:
+	// https://en.wikipedia.org/wiki/CORDIC
+	
+	
+	// x is angle in radian, x = [0, 6.28]
+	// sinOrCos false is sin
+	
+	function Float trig(Float rad, bool sinOrCos) {
+		var int tempx, x, y, sigma, nextRot, j, angle, xminus, yminus, input, input2, ret;
+		
+		if(rad = 0) {
+			if( sinOrCos ) {
+				return 15360;
+			} else {
+				return 0; 
+			}
+		}
+		
+		if(0 > rad) {
+			let rad = Float.negate(rad);
+		}
+		
+		//if rad is bigger than 2pi, then normalize
+		while( rad > 17992) {
+			let rad = Float.add(rad, Float.negate(17992)); //new rad = rad - 2pi
+		}
+		
+		let input = rad;
+		
+		//if rad is bigger than pi
+		if(rad > 16969) {
+			let rad = Float.add(rad, Float.negate(16969));
+		}
+		
+		//if rad is bigger than pi/2
+		if(rad > 15944) {
+			let rad = Float.add(rad, Float.negate(15944));
+		}
+		
+		let input2 = rad;
+
+		//statring from first iteration
+		
+		let x = 15360; // we start from half sin(0.5rad) = 0.70710678118 / K(n) = 1
+		let y = 15360; // x, y = 1, when multiplied by K(n=0), then x,y = 0,7071 ; that's sin(45deg)=cos(45eg)
+		let nextRot = 1024; 
+		let angle = arctan[1];
+		let rad = Float.add(rad,  (arctan[0] | (~32767))) ;
+		
+		while(n > j) {
+			let sigma = (rad > 0);
+			/**
+			do Output.println();
+			do Output.printInt(x);
+			do Output.printString( ":" );
+			do Output.printInt(y);
+			do Output.printString( ">" );
+			do Output.printInt(rad);
+			do Output.printString("<");
+			do Output.printInt(angle);
+			do Output.printString(">");
+			do Output.printInt(nextRot);
+			*/
+			let xminus = x-nextRot;
+			let yminus = y-nextRot;
+			
+			if( sigma ) {
+				if(yminus > 0) {
+					let tempx = Float.add(x, yminus );
+				}
+				if( xminus > 0 ) {
+					let y = Float.add(y, (xminus + (~32767)));
+				}
+				let x =  tempx;
+
+				let rad = Float.add(rad,  (angle | (~32767)));
+			} else {
+				if(yminus > 0) {
+					let tempx = Float.add(x, (yminus + (~32767)) );
+				}
+				if( xminus > 0 ) {
+				let y = Float.add(y, xminus );
+				}
+				let x = tempx;
+				
+				let rad = Float.add(rad, angle);
+			}	
+			
+			let nextRot = nextRot + 1024;
+			
+			if( j > 3 ) {
+				let angle = angle - 1024;
+			} else {
+				let angle = arctan[j+2];
+			}
+			let j = j + 1;
+		}
+		
+		let x = Float.mult(x, 14555);
+		let y = Float.mult(y, 14555);
+		
+		if( input2 > 15920 ) { // 87deg for sin
+			let x = 15360; // ~ 1
+		}
+		
+		if( 10931 > input2) { // 3deg for cos
+			let y = 15360; // ~ 1
+		}
+		
+		// lim n->inf K(n) ~ 0,60725293 = 14555
+		if ( sinOrCos ) {
+			
+			//if input is bigger than pi/2 then y=1-y
+			if(input > 15944) {
+				let ret = x;
+			} else {
+				let ret = y;
+			}
+			
+			//if input is bigger than pi, then y=-y
+			if(input > 16969) {
+				let ret = Float.negate(y);
+			}
+			
+			if(input > 17590) {
+				let ret = Float.negate(x);
+			}
+			
+			return ret; // cos
+		} else {
+			
+			if(input > 15944) {
+				let ret = y;
+			} else {
+				let ret = x;
+			}
+			
+			if(input > 16969) {
+				let ret = Float.negate(x);
+			} 
+			
+			if(input > 17590) {
+				let ret = Float.negate(y);
+			}
+			
+			return ret; // sin
+		}
+	}
+	
+	//4normalizing
+	function Float fastInvSqrt(Float x) {
+		var int temp, sign, inv;
+		
+		//removing sign from x
+		let x = x&32767;
+		
+		//calculating square root inverse of x, i don't have any idea why this works but whatever
+		// 22973 is our magic number, with magic sigma that correct this its 173
+		// Iy = 3/2*2^10*(15-sigma)
+		// sigma = 0.0430357
+		let inv = 22973 - Math.SHR(x, 1);
+		
+		//using Newton Root Finding Method to improve approximation (15872 is 1.5f)
+		return Float.mult(inv, (Float.add(15872, (Float.mult(Float.mult((x-1024), inv),inv) + (~32767)))));
+	}
+	
+	function Float negate(Float x) {
+		if( x = 0 ) {
+			return 0;
+		}
+		return x + (~32767);
+	}
+	
+	// dir false is mult2, dir true is div2
+	function Float shift(Float x, int y, bool dir) {
+		if (x = 0) {
+			return 0;
+		}
+		
+		if(dir) {
+			let x = x - (y*1024);
+		} else {
+			let x = x + (y*1024);
+		}
+		
+		return x;
+	}
+	
+	// i dont need those so i dont care 
+	
+	function bool isFinite(Float x) {
+		return false;
+	}
+	
+	function bool isNormalized(Float x) {
+		return false;
+	}
+	
+	function bool isDenormalized(Float x) {
+		return false;
+	}
+	
+	function bool isZero(Float x) {
+		return false;
+	}
+	
+	function bool isNan(Float x){
+		return false;
+	}
+	
+	function bool isInfinity(Float x) {
+		return false;
+	}
+}

@@ -1,0 +1,235 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Math.jack
+// But this file was modified by Adollo
+
+/**
+ * A library of commonly used mathematical functions.
+ * Note: Jack compilers implement multiplication and division using OS method calls.
+ */
+class Math {
+    
+    static Array pow;
+    static Array mask;
+    static Array brujin;
+	
+    static int nextQ;
+    
+    /** Initializes the library. */
+    function void init() {
+        var int nextPower, index, sum;
+        
+        let pow = Array.new(16);
+        let mask = Array.new(16);
+		let brujin = Array.new(16);
+		
+        let nextPower = 1;
+        
+        while(16 > index) {
+            let sum = sum+nextPower;
+            let mask[index] = sum;
+            
+            let pow[index] = nextPower;
+            let index = index + 1;
+            
+            let nextPower = nextPower + nextPower;
+        }
+        
+		//brujin table for log2
+		let brujin[0] = 0;
+		let brujin[1] = 10;
+		let brujin[2] = 1;
+		let brujin[3] = 13;
+		let brujin[4] = 11;
+		let brujin[5] = 7;
+		let brujin[6] = 2;
+		let brujin[7] = 14;
+		let brujin[8] = 9;
+		let brujin[9] = 12;
+		let brujin[10] = 6;
+		let brujin[11] = 8;
+		let brujin[12] = 5;
+		let brujin[13] = 4;
+		let brujin[14] = 3;
+		let brujin[15] = 15;
+		
+        return;
+    }
+    
+    function bool bitAt(int x, int index) {
+        if( (x & pow[index]) > 0 ) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+    
+    /** Returns the absolute value of x. */
+    function int abs(int x) {
+        if(0 > x) {
+            let x = -x;
+        }
+        return x;
+    }
+
+    /** Returns the product of x and y. 
+     *  When a Jack compiler detects the multiplication operator '*' in the 
+     *  program's code, it handles it by invoking this method. In other words,
+     *  the Jack expressions x*y and multiply(x,y) return the same value.
+     */
+    function int multiply(int x, int y) {
+        var int sum, nextPower, index;
+        
+        let index = 0;
+        let nextPower = x;
+        let sum = 0;
+        
+        while(16 > index) {
+            if( ~((y & pow[index]) = 0 ) ) {
+                let sum = sum+nextPower;
+            }
+            let index = index + 1;
+            let nextPower = nextPower + nextPower;
+        }
+
+        return sum;
+    }
+
+    /** Returns the integer part of x/y.
+     *  When a Jack compiler detects the multiplication operator '/' in the 
+     *  program's code, it handles it by invoking this method. In other words,
+     *  the Jack expressions x/y and divide(x,y) return the same value.
+     */
+    function int divide(int x, int y) {
+        var int q, result;
+        var bool sign;
+        
+        let nextQ = 0;
+        
+        //handling sign
+        if( 0 > x ) {
+            let sign = ~sign;
+            let x = -x;
+        }
+        if( 0 > y ) {
+            let sign = ~sign;
+            let y = -y;
+        }
+        
+        if( y > x ) {
+            return 0;
+        }
+        
+		if ( (y+y) > 0 ) {
+			let q = Math.divide(x, y+y);
+        } else {
+			let q = 0;
+		}
+        //if the rest of divive by 2*y is bigger than y then we can add 1 to the result of the prev divide.
+        //nextQ is already computed
+        if ( y > ( x -  nextQ )) {
+            let result = q+q;
+        } else {
+            let nextQ=nextQ+y;
+            let result = q+q+1;
+        }
+        
+        if(sign) {
+            return -result;
+        } else {
+            return result;
+        }
+    }
+
+    /** Returns the integer part of the square root of x. */
+    function int sqrt(int x) {
+        var int res, index, two, temp, temp2;
+        let index = 7;
+        
+        while(index > -1) {
+            let temp = res + pow[index];
+            let temp2 = temp*temp;
+            
+            if ( ( x > (temp2-1)) & (temp2>0) ) {
+                let res = temp;
+            }
+            let index = index - 1;
+        }
+        
+        return res;
+    }
+
+    /** Returns the greater number. */
+    function int max(int a, int b) {
+        if(b > a) {
+            return b;
+        } else {
+            return a;
+        }
+    }
+
+    /** Returns the smaller number. */
+    function int min(int a, int b) {
+        if(a > b) {
+            return b;
+        } else {
+            return a;
+        }
+    }
+	
+	//left bit-wise rot
+	function int rotL(int x, int count) {
+        while(count>0) {
+            let x = (x + x) - (0 > x);
+            let count = count - 1;
+       }
+       return x;
+    }
+    // Right bit-wise rot, known bug with -32768 - on some platforms number 32768 is positive
+    function int SHR(int x, int n) {
+      var int lel;
+      // unsigned shift right n bits
+      // [needs bounds checking on 'n'.]
+      let n = 16-n;
+      let lel = n;
+      
+      while (n > 0) {
+        let x = (x + x) - (0 > x);
+        let n = n-1;
+        }
+      return x&(mask[lel-1]);    // wwfdafs
+    }
+	
+	//lshift without rotating
+	function int lshift(int x, int count) {
+		while(count>0) {
+            let x = (x + x);
+            let count = count - 1;
+       }
+       return x;
+	}
+	
+	//log2 from x
+	function int log(int x) {
+		//removing sign
+		let x = x&32767;
+		
+		//why
+		
+		let x = x | Math.SHR(x, 1);
+		let x = x | Math.SHR(x, 2);
+		let x = x | Math.SHR(x, 4);
+		let x = x | Math.SHR(x, 8);
+		
+		return brujin[Math.SHR((3941*x), 12)&15];
+	}
+	
+	function Array getMask() {
+		return mask;
+	}
+	
+	function Array getPow() {
+		return pow;
+	}
+}

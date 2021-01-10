@@ -1,0 +1,247 @@
+class Main {
+
+	function void main() {
+		var Array t, trans;
+		var int index, base, key;
+		var Float deg, temp, addDeg;
+		
+		var bool renderMode;
+		var String s;
+		
+		do Output.moveCursor(7,20);
+	    do Output.printString("3D wireframe render");
+		do Output.moveCursor(9,2);
+		do Output.printString("Using custom implementation of 16-bit floating point numbers");
+		do Output.moveCursor(12,21);
+		do Output.printString("Made by Adam Nowak");
+		
+		let s = "Press Enter to start";
+		do Output.moveCursor(14, 20);
+		do Output.printString(s);
+		do s.dispose();
+		
+		while( ~(base[24576] = 128) ) {}
+		
+		//do Screen.clear();
+		
+		//init Render
+		do Render.init();
+		
+		do Render.clearScreen();
+		
+		/**
+		//tetrahedron
+		// [A,B,C,D,A,B]
+		let t = Array.new(20);
+		
+		// putting data
+		// zero index is how many points are there (t[0]/3)
+		// first index is how many edges are there (t[1]) 
+		// second index is how many faces are there (t[2])
+		// edges are coded in 8bit in single word, upper 8 bits coding first point index, rest second
+		// faces are coded in single word, first and second 8 bits codes indexes of edges that define face
+		// index of concrete verticle is (indexOfVert*2)
+		// total size of array is 2 + t[0] + t[1]
+		
+		let t[0] = 12;
+		let t[1] = 6;
+		
+		//A(-1, 0, -0.5)
+		let t[2] = -17408;
+		let t[3] = 0;
+		let t[4] = -18432;
+		
+		//B(0, 0, 1)
+		let t[5] = 0;
+		let t[6] = 0;
+		let t[7] = 15360;
+		
+		//C(1, 0, -0.5)
+		let t[8] = 15360;
+		let t[9] = 0;
+		let t[10] = -18432;
+		
+		//D(0,3,0)
+		let t[11] = 0;
+		let t[12] = 16896;
+		let t[13] = 0;
+		
+		//A->B  :  ret[0] -> ret[2]
+		let t[14] = 2;
+		
+		//B->C  :  ret[2] -> ret[4]
+		let t[15] = 516;
+		
+		//C->A  :  ret[4] -> ret[0]
+		let t[16] = 1024;
+		
+		//A->D  :  ret[0] -> ret[6]
+		let t[17] = 6;
+		
+		//B->D  :  ret[2] -> ret[6]
+		let t[18] = 518;
+		
+		//C->D  :  ret[4] -> ret[6]
+		let t[19] = 1030;
+		*/
+		
+		//cube
+		let t = Array.new(57);
+		
+		let t[0] = 24; //size of points data
+		let t[1] = 12; //size of edges data
+		let t[2] = 6; //size of faces data
+		//additional space for edges information
+		
+		//points
+		//A(-1,1,-1)
+		let t[3] = -17408;
+		let t[4] = 15360;
+		let t[5] = -17408;
+		//B(-1,1,1)
+		let t[6] = -17408;
+		let t[7] = 15360;
+		let t[8] = 15360;
+		//C(1,1,1)
+		let t[9] = 15360;
+		let t[10] = 15360;
+		let t[11] = 15360;
+		//D(1,1,-1)
+		let t[12] = 15360;
+		let t[13] = 15360;
+		let t[14] = -17408;
+		//E(-1,-1,-1)
+		let t[15] = -17408;
+		let t[16] = -17408;
+		let t[17] = -17408;
+		//F(-1,-1,1)
+		let t[18] = -17408;
+		let t[19] = -17408;
+		let t[20] = 15360;
+		//G(1,-1,1)
+		let t[21] = 15360;
+		let t[22] = -17408;
+		let t[23] = 15360;
+		//H((1,-1,-1)
+		let t[24] = 15360;
+		let t[25] = -17408;
+		let t[26] = -17408;	
+		
+		
+		
+		//edges
+		//first six are set apart for computing normals
+		
+		//0 AB 0>1
+		let t[27] = 2;
+		//1 AD 0>3
+		let t[28] = 6;
+		//2 AE 0>4
+		let t[29] = 8;
+		
+		//3 GC 6>2
+		let t[30] = 3076;
+		//4 GH 6>7
+		let t[31] = 3086;
+		//5 GF 6>5
+		let t[32] = 3082;
+		
+		//6 BC 1>2
+		let t[33] = 516;
+		//7 CD 2>3
+		let t[34] = 1030;
+		//8 DH 3>7
+		let t[35] = 1550;
+		
+		//9 BF 1>5
+		let t[36] = 522;
+		//10 EF 4>5
+		let t[37] = 2058;
+		//11 HE 7>4
+		let t[38] = 3592;
+		
+		//faces
+		
+		//0 AD, AB, C = 1>0
+		let t[39] = 256;
+		//1 AE, AD, H = 2>1
+		let t[40] = 513;
+		//2 AB, AE, F = 0>2
+		let t[41] = 2;
+		//3 GC, GH, F = 3>4
+		let t[42] = 772;
+		//4 GF, GC, B = 5>3
+		let t[43] = 1283;
+		//5 GH, GF, E = 4>5
+		let t[44] = 1029;
+		
+		//assigning faces to edges for backface culling
+		
+		//AB 0,2
+		let t[45] = 2;
+		//AD 0,1
+		let t[46] = 1;
+		//AE 1,2
+		let t[47] = 258;
+		
+		//GC 3,4
+		let t[48] = 772;
+		//GH 3,5
+		let t[49] = 773;
+		//GF 4,5
+		let t[50] = 1029;
+		
+		//BC 0,4
+		let t[51] = 4;
+		//CD 0,3
+		let t[52] = 3;
+		//DH 1,3
+		let t[53] = 259;
+		
+		//BF 2,4
+		let t[54] = 516;
+		//EF 2,5
+		let t[55] = 517;
+		//HE 1,5
+		let t[56] = 261;
+		
+		// 6 17920
+		//setting camera position (3 16896,1,1) (cam look point is (0,0,0))
+		do Render.setCamPos(16896,15872,16640);
+		do Render.setCamView(0,0,0);
+		do Render.transMatrix();
+		
+		let temp = t;
+        
+		while(true) {
+            
+			// add cube to render pipeline with backface culling
+			do Render.addModel(temp, true);
+			// render added models
+			do Render.render();
+			
+			//normalizing
+			if ( deg > 17992) {
+				let deg = Float.add(deg, -14776); //new rad = rad - 2pi
+			} 
+            if ( deg < 0 ) {
+                let deg = 17991;
+            }
+			
+			//calculating nice movement scale
+			let temp = Float.trig(deg, false);
+			let temp = Float.mult(temp, temp);
+			
+			//translating and rotating
+			let temp = Render.transModel(Render.rotModelY(t, deg), Float.mult(-15872, temp ), Float.mult(-16896, temp), Float.mult(-16128, temp));
+
+			//adding degs
+            //97 - a
+			let addDeg = 10158;
+            let deg = Float.add(deg, addDeg);
+		}
+		
+		return;
+	}
+
+}
