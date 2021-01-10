@@ -713,4 +713,16 @@ class Render {
         
         return;
     }		
+	
+	/** Erases the entire screen. */
+    function void clearScreen() {
+        var int from, to, base;
+        let from = 16384;
+        let to = 24576;
+        while( ~(from = to) ) {
+            let base[from] = 0;
+            let from = from + 1;
+        }
+        return;
+    }
 }
