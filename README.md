@@ -12,3 +12,4 @@ My [Nand2Tetris](https://www.nand2tetris.org/) course final projects - 16bit flo
 * Change slider to fastest and change "Animate:" to "No animation".
 * Click "Run" button right to "Load Program" button.
 * Proceed with instructions on the screen.
+* Or check it in your web browser [here](https://nouvadam.github.io/hack_cpu_emu/)! Just choose `3D Render` from the ROM list. 
